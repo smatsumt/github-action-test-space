@@ -3,6 +3,8 @@ name: Auto Request Claude Review
 on:
   pull_request:
     types: [review_requested]
+  issue_comment:
+    types: [created]
 
 jobs:
   request-claude-review:
@@ -16,17 +18,35 @@ jobs:
         with:
           script: |
             const comments = [
-              'claude この PR をレビューして',
-              `claude 以下の確認を、sub agent を使って実行して
+              '@claude この PR をレビューして',
+              `@claude 以下の確認を、sub agent を使って実行して
             - テーブルの追加があるかを確認して。もし追加されていれば RLS の設定も入っているか確認して。
             - apps/api/prisma 以下に "seed" で始まるファイルが追加されているかを確認して。追加されていれば、infra/apps/lib/config/allow-ip-list.json にも対応する設定が追加されているかを確認して。`,
             ];
+            
+            // PR 番号を取得（pull_request イベントまたは issue_comment イベントに対応）
+            const prNumber = context.payload.pull_request?.number || context.payload.issue?.number;
+            
+            if (!prNumber) {
+              throw new Error('PR番号が取得できませんでした');
+            }
+            
+            // issue_comment イベントの場合は PR のコメントのみ対象とする
+            if (context.eventName === 'issue_comment') {
+              // PR かどうかを確認（issue の場合は pull_request プロパティが存在する）
+              const issue = context.payload.issue;
+              if (!issue.pull_request) {
+                // PR ではない issue の場合はスキップ
+                console.log('PR ではない issue のコメントのためスキップします');
+                return;
+              }
+            }
             
             for (const comment of comments) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
+                issue_number: prNumber,
                 body: comment,
               });
             }
